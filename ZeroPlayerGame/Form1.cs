@@ -13,6 +13,7 @@ namespace ZeroPlayerGame
     public partial class Form1 : Form
     {
         private bool IsAlive = false;
+        private MatrixGrid MainGrid;
         public Form1()
         {
             InitializeComponent();
@@ -20,13 +21,13 @@ namespace ZeroPlayerGame
             string[,] matrix = new string[30, 30];
 
             //создаем грид
-            var grid = new MatrixGrid() { Parent = panel1, Dock = DockStyle.Fill };
+            MainGrid = new MatrixGrid() { Parent = panel1, Dock = DockStyle.Fill };
 
             //задаем размер грида
-            grid.GridSize = new Size(matrix.GetLength(0), matrix.GetLength(1));
+            MainGrid.GridSize = new Size(matrix.GetLength(0), matrix.GetLength(1));
 
             //присваиваем событие в котором будем отдавать текст ячейки и ее цвет
-            grid.CellNeeded += (o, e) =>
+            MainGrid.CellNeeded += (o, e) =>
             {
                 e.Value = matrix[e.Cell.X, e.Cell.Y];
                 e.BackColor = Color.White;
@@ -36,29 +37,15 @@ namespace ZeroPlayerGame
 
         private void button1_Click(object sender, EventArgs e)
         {
-            if (!IsAlive)
+            if (!MainGrid.IsAlive)
             {
-                IsAlive = true;
-                Run();
+                MainGrid.IsAlive = true;
             }
             else
             {
-                IsAlive = false;
+                MainGrid.IsAlive = false;
             }
             
-        }
-
-        private void Run()
-        {
-            while (IsAlive)
-            {
-
-            }
-        }
-
-        private void CheckDesk()
-        {
-
-        }
+        }       
     }
 }

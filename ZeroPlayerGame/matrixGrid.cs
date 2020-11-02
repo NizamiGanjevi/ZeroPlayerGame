@@ -8,15 +8,19 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Drawing.Drawing2D;
+using System.Threading;
 
 namespace ZeroPlayerGame
 {
     public partial class MatrixGrid : UserControl
     {
         public Size GridSize { get; set; }
-        public bool IsAlive { get; set; }
+        public bool IsAlive { get; set; } = false;
         public Point HoveredCell = new Point(-1, -1);
         public Dictionary<int, Cell> Cells = new Dictionary<int, Cell>();
+        private int MaxNeighbors = 3;
+        private int MinNeighbors = 2;
+        private int BornNeighbors = 3;
 
         public event EventHandler<CellNeededEventArgs> CellNeeded;
 
@@ -27,13 +31,24 @@ namespace ZeroPlayerGame
 
         protected override void OnCreateControl()
         {
-            int count = 0;
+            
             for (int j = 0; j < GridSize.Height; j++)
                 for (int i = 0; i < GridSize.Width; i++)
                 {
-                    Cells.Add(count, new Cell(i, j, false));
-                    count++;
+                    int index = i + j * GridSize.Width;
+                    Cells.Add(index, new Cell(i, j, false));
                 }
+            Task.Run(() =>
+            {
+                while (true)
+                {
+                    while (IsAlive)
+                    {
+                        Start();
+                    }
+                    Task.Delay(500);
+                }
+            });
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -47,7 +62,7 @@ namespace ZeroPlayerGame
             var cw = ClientSize.Width / GridSize.Width;
             var ch = ClientSize.Height / GridSize.Height;
 
-            foreach (Cell cell in Cells)
+            foreach (Cell cell in Cells.Values)
             {
                 var point = new Point(cell.x, cell.y);
 
@@ -76,21 +91,27 @@ namespace ZeroPlayerGame
 
         protected override void OnMouseMove(MouseEventArgs e)
         {
-            base.OnMouseMove(e);
-            var cell = PointToCell(e.Location);
-            HoveredCell = cell;
-            Invalidate();
+            if (!IsAlive)
+            {
+                base.OnMouseMove(e);
+                var cell = PointToCell(e.Location);
+                HoveredCell = cell;
+                Invalidate();
+            }            
         }
 
         protected override void OnMouseDown(MouseEventArgs e)
         {
-            base.OnMouseDown(e);
-            if (e.Button == MouseButtons.Left)
+            if (!IsAlive)
             {
-                var cell = PointToCell(e.Location);
-                OnCellClick(new CellClickEventArgs(cell));
-                HoveredCell = cell;
-            }
+                base.OnMouseDown(e);
+                if (e.Button == MouseButtons.Left)
+                {
+                    var cell = PointToCell(e.Location);
+                    OnCellClick(new CellClickEventArgs(cell));
+                    HoveredCell = cell;
+                }
+            }            
         }
 
         protected virtual void OnCellClick(CellClickEventArgs cellClickEventArgs)
@@ -100,8 +121,61 @@ namespace ZeroPlayerGame
 
         private void CellClick(MatrixGrid matrixGrid, CellClickEventArgs cellClickEventArgs)
         {
-            Cells.
+            int index = cellClickEventArgs.Cell.X + (cellClickEventArgs.Cell.Y * GridSize.Width);
+            Cells[index].SwitchStatus();
         }
+
+        private void Start()
+        {
+            var CTS = new CancellationTokenSource();
+
+            var task1 = Task.Run(() => CheckDesk(), CTS.Token);
+            Task.WhenAll(task1).Wait();
+        }
+
+        private async Task<bool> CheckDesk()
+        {
+            await Task.Run(() =>
+            {
+                foreach(Cell cell in Cells.Values)
+                {
+                    int nbCount = GetNeighborsCount(cell.x, cell.y);
+                    if (cell.IsAlive)
+                    {
+                        if (nbCount < MinNeighbors || nbCount > MaxNeighbors)
+                            cell.SwitchStatus();
+                    }
+                    else
+                    {
+                        if (nbCount == BornNeighbors)
+                            cell.SwitchStatus();
+                    }
+
+                }
+                
+            });
+            return true;
+        }
+
+        private int GetNeighborsCount(int x, int y)
+        {
+            int result = 0;
+            int[][] offsets = new int[][] { new int[] { 1, 1 }, new int[] { 1, 0 }, new int[] { 0, 1 }, new int[] { 1, -1 }, new int[] { -1, 1 }, new int[] { 0, -1 }, new int[] { -1, 0 }, new int[] { -1, -1 } };
+            foreach (int[] offset in offsets)
+            {
+                int index = x - offset[0] + ((y - offset[1]) * GridSize.Width);
+                try
+                {
+                    if (Cells[index].IsAlive)
+                        result++;
+                }
+                catch (KeyNotFoundException)
+                {
+                    continue;
+                }
+            }
+            return result;
+        } 
 
         Point PointToCell(Point p)
         {

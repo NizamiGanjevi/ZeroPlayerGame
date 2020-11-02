@@ -18,5 +18,14 @@ namespace ZeroPlayerGame
             this.x = x;
             this.y = y;
         }
+
+        public bool SwitchStatus()
+        {
+            if (IsAlive)
+                IsAlive = false;
+            else
+                IsAlive = true;
+            return IsAlive;
+        }
     }
 }
