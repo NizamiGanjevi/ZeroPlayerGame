@@ -15,29 +15,26 @@ namespace ZeroPlayerGame
     public partial class MatrixGrid : UserControl
     {
         public Size GridSize { get; set; }
+        private int Step = 0;
+        private MatrixGrid Instance;
         public bool IsAlive { get; set; } = false;
         public Point HoveredCell = new Point(-1, -1);
-        public Dictionary<int, Cell> Cells = new Dictionary<int, Cell>();
+        public Cell[,] Cells;
         private int MaxNeighbors = 3;
         private int MinNeighbors = 2;
         private int BornNeighbors = 3;
 
         public event EventHandler<CellNeededEventArgs> CellNeeded;
+        public delegate void WorldStepHandler(int step);
+        public event WorldStepHandler WorldStep;
 
-        public MatrixGrid()
+        public MatrixGrid(Size size)
         {
+            InitializeComponent();
+            GridSize = size;
+            Instance = this;
+            Cells = GetCells();
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
-        }
-
-        protected override void OnCreateControl()
-        {
-            
-            for (int j = 0; j < GridSize.Height; j++)
-                for (int i = 0; i < GridSize.Width; i++)
-                {
-                    int index = i + j * GridSize.Width;
-                    Cells.Add(index, new Cell(i, j, false));
-                }
             Task.Run(() =>
             {
                 while (true)
@@ -45,10 +42,18 @@ namespace ZeroPlayerGame
                     while (IsAlive)
                     {
                         Start();
+                        RefreshMap();
+                        WorldStep?.Invoke(Step++);
                     }
                     Task.Delay(500);
                 }
             });
+        }
+
+        public void ResetGrid()
+        {
+            Cells = GetCells();
+            WorldStep?.Invoke(Step = 0);
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -62,29 +67,35 @@ namespace ZeroPlayerGame
             var cw = ClientSize.Width / GridSize.Width;
             var ch = ClientSize.Height / GridSize.Height;
 
-            foreach (Cell cell in Cells.Values)
+            for (int i = 0; i < GridSize.Width; i++)
             {
-                var point = new Point(cell.x, cell.y);
-
-                //получаем значение ячейки от пользователя
-                var ea = new CellNeededEventArgs(point);
-                CellNeeded(this, ea);
-
-                //рисуем ячейку
-                var rect = new Rectangle(cw * cell.x, ch * cell.y, cw, ch);
-                rect.Inflate(-1, -1);
-
-                if (point == HoveredCell)
-                    gr.DrawRectangle(Pens.Red, rect);
-
-                //фон
-                if (cell.IsAlive)
-                    using (var brush = new SolidBrush(Color.Black))
-                        gr.FillRectangle(brush, rect);
-                else
+                for (int j = 0; j < GridSize.Height; j++)
                 {
-                    using (var brush = new SolidBrush(Color.White))
-                        gr.FillRectangle(brush, rect);
+                    var cell = Cells[i, j];
+                    var x = cell.x;
+                    var y = cell.y;
+                    var point = new Point(x, y);
+
+                    //получаем значение ячейки от пользователя
+                    var ea = new CellNeededEventArgs(point);
+                    CellNeeded(this, ea);
+
+                    //рисуем ячейку
+                    var rect = new Rectangle(cw * x, ch * y, cw, ch);
+                    rect.Inflate(-1, -1);
+
+                    if (point == HoveredCell)
+                        gr.DrawRectangle(Pens.Red, rect);
+
+                    //фон
+                    if (cell.IsAlive)
+                        using (var brush = new SolidBrush(Color.Black))
+                            gr.FillRectangle(brush, rect);
+                    else
+                    {
+                        using (var brush = new SolidBrush(Color.White))
+                            gr.FillRectangle(brush, rect);
+                    }
                 }
             }
         }
@@ -114,6 +125,17 @@ namespace ZeroPlayerGame
             }            
         }
 
+        private Cell[,] GetCells()
+        {
+            Cell[,] cells = new Cell[GridSize.Width, GridSize.Height];
+            for (int j = 0; j < GridSize.Height; j++)
+                for (int i = 0; i < GridSize.Width; i++)
+                {
+                    cells[i, j] = new Cell(Instance, i, j, false);
+                }
+            return cells;
+        }
+
         protected virtual void OnCellClick(CellClickEventArgs cellClickEventArgs)
         {
             CellClick(this, cellClickEventArgs);
@@ -122,60 +144,101 @@ namespace ZeroPlayerGame
         private void CellClick(MatrixGrid matrixGrid, CellClickEventArgs cellClickEventArgs)
         {
             int index = cellClickEventArgs.Cell.X + (cellClickEventArgs.Cell.Y * GridSize.Width);
-            Cells[index].SwitchStatus();
+            Cells[cellClickEventArgs.Cell.X, cellClickEventArgs.Cell.Y].SwitchStatus();
         }
 
         private void Start()
         {
             var CTS = new CancellationTokenSource();
+            int deviderX = GridSize.Width / 2;
+            int deviderY = GridSize.Height / 2;
 
-            var task1 = Task.Run(() => CheckDesk(), CTS.Token);
-            Task.WhenAll(task1).Wait();
+            var task1 = Task.Run(() => CheckDesk(0, deviderX, 0, deviderY), CTS.Token);
+            var task2 = Task.Run(() => CheckDesk(deviderX, GridSize.Width, 0, deviderY), CTS.Token);
+            var task3 = Task.Run(() => CheckDesk(0, deviderX, deviderY, GridSize.Height), CTS.Token);
+            var task4 = Task.Run(() => CheckDesk(deviderX, GridSize.Width, deviderY, GridSize.Height), CTS.Token);
+
+            Task.WhenAll(task1, task2, task3, task4).Wait();
         }
 
-        private async Task<bool> CheckDesk()
+        private async Task<bool> CheckDesk(int fromX, int toX, int fromY, int toY)
         {
             await Task.Run(() =>
             {
-                foreach(Cell cell in Cells.Values)
+                for (int i = fromX; i < toX; i++)
+                {
+                    for (int j = fromY; j < toY; j++)
+                    {
+                        int nbCount = GetNeighborsCount(Cells[i, j].x, Cells[i, j].y);
+                        if (Cells[i, j].IsAlive)
+                        {
+                            if (nbCount < MinNeighbors || nbCount > MaxNeighbors)
+                                Cells[i, j].SwitchStatus(false);
+                        }
+                        else
+                        {
+                            if (nbCount == BornNeighbors)
+                                Cells[i, j].SwitchStatus(false);
+                        }
+                    }
+                    
+                }
+                /*
+                foreach (Cell cell in Cells)
                 {
                     int nbCount = GetNeighborsCount(cell.x, cell.y);
                     if (cell.IsAlive)
                     {
                         if (nbCount < MinNeighbors || nbCount > MaxNeighbors)
-                            cell.SwitchStatus();
+                        cell.SwitchStatus();
                     }
                     else
                     {
                         if (nbCount == BornNeighbors)
-                            cell.SwitchStatus();
+                        cell.SwitchStatus();
                     }
 
-                }
-                
+
+                /*
+                 * */           
+
             });
             return true;
+        }
+
+        private void RefreshMap()
+        {
+            Instance.Invoke((MethodInvoker)delegate
+            {
+                Refresh();
+            });
         }
 
         private int GetNeighborsCount(int x, int y)
         {
             int result = 0;
-            int[][] offsets = new int[][] { new int[] { 1, 1 }, new int[] { 1, 0 }, new int[] { 0, 1 }, new int[] { 1, -1 }, new int[] { -1, 1 }, new int[] { 0, -1 }, new int[] { -1, 0 }, new int[] { -1, -1 } };
-            foreach (int[] offset in offsets)
+            int i = 0;
+            int[] range = new int[] { 1, -1, -1, 0, -1, 1, 0, 1, 1 };
+            while (i < 8)
             {
-                int index = x - offset[0] + ((y - offset[1]) * GridSize.Width);
+                int k = i + 1;
+                int xNb = x + range[i];
+                int yNb = y + range[k];
+                i++;
                 try
                 {
-                    if (Cells[index].IsAlive)
+                    if (Cells[xNb, yNb].IsAlive)
                         result++;
                 }
-                catch (KeyNotFoundException)
+                catch (IndexOutOfRangeException)
                 {
                     continue;
-                }
+                }               
+                
             }
             return result;
-        } 
+        }
+            
 
         Point PointToCell(Point p)
         {
